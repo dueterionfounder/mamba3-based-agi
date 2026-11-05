@@ -1,4 +1,12 @@
-# Mamba-3: Clean Reference Implementation
+# Mamba3 AGI
+
+this is a project based on mamba3-pytorch, where I am going to write changes in pytorch and then write a monolithic kernels for it.  key changes include:
+- 4D RoPE
+- implicit 4D hypercomplex state
+- I dont remember exactly, but the delta and stuff parameters will be edited for better OOD handling for output.
+- API that I think is easyer to use and mod. 
+
+## Mamba-3: Clean Reference Implementation
 
 A clean, readable, from-scratch PyTorch implementation of **Mamba-3** — a selective state space model that addresses the three core limitations of Mamba-2. No Triton/CUDA kernels or TileLang optimizations; designed for understanding the algorithm.
 
@@ -7,11 +15,11 @@ A clean, readable, from-scratch PyTorch implementation of **Mamba-3** — a sele
 
 ---
 
-## Core Ideas
+### Core Ideas
 
 Mamba-3 introduces three improvements over Mamba-2:
 
-### 1. Exponential-Trapezoidal Discretization
+#### 1. Exponential-Trapezoidal Discretization
 
 Mamba-2 used Zero-Order Hold (exponential-Euler), a first-order approximation that loses accuracy at large step sizes. Mamba-3 adopts the **trapezoidal rule**: it averages the `B*x` contribution at time `t-1` and time `t` before applying the state decay.
 
@@ -21,13 +29,13 @@ h_t = exp(A·dt_t) · h_{t-1}  +  dt_t · trap_t · (B_t·x_t + B_{t-1}·x_{t-1}
 
 `trap_t` is a learned sigmoid gate that continuously blends between pure Euler (`trap=0`) and full trapezoidal averaging (`trap=1`).
 
-### 2. Complex-Valued (Rotary) State Space
+#### 2. Complex-Valued (Rotary) State Space
 
 Real-valued SSM hidden states cannot easily represent oscillatory or rotational patterns. Mamba-3 applies **Rotary Position Embeddings (RoPE)** to the B and C (key/query) projections, giving the state an effective complex-valued structure.
 
 A small "angle" projection is learned per head and accumulated over time scaled by `dt`, then used to rotate B and C before each SSM update. This lets the model track phase-dependent and positional dependencies without an explicit complex number type.
 
-### 3. Multi-Input Multi-Output (MIMO) Formulation
+#### 3. Multi-Input Multi-Output (MIMO) Formulation
 
 Mamba-2 is **SISO**: one input vector drives one output via one SSM state (outer-product update of shape `P×D`). During autoregressive decoding the GPU is memory-bandwidth bound, so this is inefficient.
 
@@ -44,7 +52,7 @@ B and C projections also get rank-R counterparts (K and Q in the attention analo
 
 ---
 
-## Notation
+### Notation
 
 | Symbol | Meaning |
 |--------|---------|
@@ -58,7 +66,7 @@ B and C projections also get rank-R counterparts (K and Q in the attention analo
 
 ---
 
-## File Structure
+### File Structure
 
 ```
 mamba3.py          — full self-contained implementation (this is all you need)
@@ -66,7 +74,7 @@ orig_ref_code.py   — original reference code for comparison
 research_notes.md  — notes taken while studying the paper
 ```
 
-### What's in `mamba3.py`
+#### What's in `mamba3.py`
 
 | Component | Description |
 |-----------|-------------|
@@ -85,9 +93,9 @@ research_notes.md  — notes taken while studying the paper
 
 ---
 
-## Usage
+### Usage
 
-### SISO (standard mode)
+#### SISO (standard mode)
 
 ```python
 import torch
@@ -106,7 +114,7 @@ x = torch.randn(2, 128, 256)   # (batch, seq_len, d_model)
 y = model(x)                   # (2, 128, 256)
 ```
 
-### MIMO mode
+#### MIMO mode
 
 ```python
 model = Mamba3(
@@ -122,7 +130,7 @@ model = Mamba3(
 y = model(x)  # same input/output shape
 ```
 
-### Autoregressive decode (one token at a time)
+#### Autoregressive decode (one token at a time)
 
 ```python
 # Allocate states — SISO and MIMO keep the same persistent state shape
@@ -135,7 +143,7 @@ u = torch.randn(2, 256)   # single token
 out, angle_state, ssm_state, bx_prev = model.step(u, angle_state, ssm_state, bx_prev)
 ```
 
-### Full language model
+#### Full language model
 
 ```python
 from mamba3 import MambaLMHeadModel, MambaConfig
@@ -154,7 +162,7 @@ logits = model(input_ids)   # (1, 512, vocab_size)
 
 ---
 
-## Key Parameters
+### Key Parameters
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
@@ -170,7 +178,7 @@ logits = model(input_ids)   # (1, 512, vocab_size)
 
 ---
 
-## Implementation Notes
+### Implementation Notes
 
 - **No custom kernels** — everything is plain PyTorch with `einops`. The sequential scan loops are correct but `O(L)` serial; production code uses parallel chunk scans.
 - **SISO and MIMO preserve the same state shape**: `(B, H, P, D)`. MIMO expands each P feature across `R` with `mimo_x`, performs a rank-R matrix write into that P×D state, and reduces `R` only after the state read and rank-wise output gate.
@@ -180,7 +188,7 @@ logits = model(input_ids)   # (1, 512, vocab_size)
 
 ---
 
-## Running the Sanity Checks
+### Running the Sanity Checks
 
 ```bash
 python3 mamba3.py
@@ -190,7 +198,7 @@ Runs SISO and MIMO forward passes, single-step decode, shape assertions, and a p
 
 ---
 
-## Dependencies
+### Dependencies
 
 ```
 torch
@@ -199,7 +207,7 @@ einops
 
 ---
 
-## References
+### References
 
 - **Paper:** Lahoti et al., *Mamba-3: Improved Sequence Modeling using State Space Principles*, 2026. [arXiv:2603.15569](https://arxiv.org/abs/2603.15569)
 - **Official implementation:** [state-spaces/mamba](https://github.com/state-spaces/mamba/tree/main) — production code with Triton/CUDA/TileLang kernels
